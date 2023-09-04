@@ -1,15 +1,17 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>title</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="src/css/main.css" />
+    <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/@picocss/pico@next/css/pico.min.css"
+    />
+    <title>Hello, world!</title>
 </head>
 <body>
-<header>
-    <h1>layout file </h1>
-</header>
-<main>
+<main class="container">
     {{template "content" .}}
 </main>
 </body>

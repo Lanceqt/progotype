@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"golang.org/x/time/rate"
 	"html/template"
 	"log"
@@ -68,7 +69,8 @@ func main() {
 
 	// Register the rate limit middleware for the root route
 	mux.HandleFunc("/", notFoundMiddleware(rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tmpl, err := template.Must(baseTemplate.Clone()).ParseFiles(filepath.Join(rootPath, defaultFolder+"/"+defaultFolder+".html"))
+		tmplPath := fmt.Sprintf("%s/%s.html", defaultFolder, defaultFolder)
+		tmpl, err := template.Must(baseTemplate.Clone()).ParseFiles(filepath.Join(rootPath, tmplPath))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -79,6 +81,7 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}))))
+
 	mux.Handle("/"+src+"/", http.StripPrefix("/"+src+"/", http.FileServer(http.Dir(filepath.Join(rootPath, src)))))
 
 	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
@@ -92,7 +95,7 @@ func main() {
 			}
 
 			// Parse the template for this folder
-			templatePath := filepath.Join(path, filepath.Base(path)+".html")
+			templatePath := filepath.Join(path, defaultFolder+".html")
 			tmpl, err := template.Must(baseTemplate.Clone()).ParseFiles(templatePath)
 			if err != nil {
 				return err
@@ -114,5 +117,5 @@ func main() {
 	}
 
 	log.Printf("Server started on http://%s:%d\n", serverHost, serverPort)
-	log.Fatal(http.ListenAndServe(serverHost+":"+strconv.Itoa(serverPort), mux))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%d", serverHost, serverPort), mux))
 }
