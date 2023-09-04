@@ -1,24 +1,62 @@
-// don't change anything in this file if you don't know what you're doing
-// It will break the server if you change anything in this file
 package main
 
 import (
+	"golang.org/x/time/rate"
 	"html/template"
 	"log"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 )
 
+// CONFIG:
+// rootPath is your web server folder
+// defaultFolder is the root index server
+// src is the folder where your assets are
+
+const (
+	serverHost    string = "localhost"
+	serverPort    int    = 8080
+	rootPath      string = "../../server"
+	defaultFolder string = "index"
+	src           string = "src"
+	rateLimit     int    = 20
+	rateBurst     int    = 10
+)
+
+// Change nothing below this line
+func rateLimitMiddleware(next http.Handler) http.HandlerFunc {
+	limiter := rate.NewLimiter(rate.Limit(rateLimit), rateBurst)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			w.Header().Set("Retry-After", strconv.FormatInt(time.Now().Add(limiter.Reserve().Delay()).Unix(), 10))
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Vary", "User-Agent")
+			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
+
+func notFoundMiddleware(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Check if the requested file exists
+		_, err := os.Stat(filepath.Join(rootPath, r.URL.Path))
+		if os.IsNotExist(err) {
+			http.Error(w, "404 page not found", http.StatusNotFound)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
+
 func main() {
-	// CONFIG:
-	// rootPath is your web server folder
-	// defaultFolder is the root index server
-	// src is the folder where your assets are
-	rootPath := "../../server"
-	defaultFolder := "index"
-	src := "src"
 
 	// Parse the base template
 	baseTemplate, err := template.ParseFiles(filepath.Join(rootPath, "layout.html"))
@@ -27,26 +65,21 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/"+src+"/", func(w http.ResponseWriter, r *http.Request) {
-		// Get the requested file path
-		filePath := filepath.Join(rootPath, r.URL.Path)
 
-		// Check if the requested file exists
-		fileInfo, err := os.Stat(filePath)
-		if err != nil || fileInfo.IsDir() {
-			// File does not exist or is a directory, return a 404 error
-			http.NotFound(w, r)
+	// Register the rate limit middleware for the root route
+	mux.HandleFunc("/", notFoundMiddleware(rateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := template.Must(baseTemplate.Clone()).ParseFiles(filepath.Join(rootPath, defaultFolder+"/"+defaultFolder+".html"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Serve the requested file
-		contentType := mime.TypeByExtension(filepath.Ext(filePath))
-		if contentType != "" {
-			// Set the content type for known file types
-			w.Header().Set("Content-Type", contentType)
+		err = tmpl.Execute(w, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		http.ServeFile(w, r, filePath)
-	})
+	}))))
+	mux.Handle("/"+src+"/", http.StripPrefix("/"+src+"/", http.FileServer(http.Dir(filepath.Join(rootPath, src)))))
 
 	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -80,19 +113,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		tmpl, err := template.Must(baseTemplate.Clone()).ParseFiles(filepath.Join(rootPath, defaultFolder+"/"+defaultFolder+".html"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		err = tmpl.Execute(w, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	})
-
-	log.Println("Server started on http://localhost:8080")
-	log.Fatal(http.ListenAndServe("localhost:8080", mux))
+	log.Printf("Server started on http://%s:%d\n", serverHost, serverPort)
+	log.Fatal(http.ListenAndServe(serverHost+":"+strconv.Itoa(serverPort), mux))
 }
